@@ -74,7 +74,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 %Clearing variables in memory and Matlab command screen
-clear all;
+clear all; close all;
 clc;
 
 % Grid Dimension in x (xdim) and y (ydim) directions
@@ -96,6 +96,7 @@ S=1/(2^0.5);
 epsilon0=(1/(36*pi))*1e-9;
 mu0=4*pi*1e-7;
 c=3e+8;
+eta=sqrt(mu0/epsilon0);
 
 % Spatial grid step length (spatial grid step= 1 micron and can be changed)
 delta=1e-6;
@@ -133,51 +134,50 @@ sim=[0.0 0.0];
 %***********************************************************************
 
 for i=1:media
-  eaf  =dt*sig(i)/(2.0*epsz*eps(i));
+  eaf  =deltat*sig(i)/(2.0*epsilon0*eps(i));
   ca(i)=(1.0-eaf)/(1.0+eaf);
-  cb(i)=dt/epsz/eps(i)/dx/(1.0+eaf);
-  haf  =dt*sim(i)/(2.0*muz*mur(i));
+  cb(i)=deltat/epsilon0/eps(i)/delta/(1.0+eaf);
+  haf  =deltat*sim(i)/(2.0*mu0*mur(i));
   da(i)=(1.0-haf)/(1.0+haf);
-  db(i)=dt/muz/mur(i)/dx/(1.0+haf);
+  db(i)=deltat/mu0/mur(i)/delta/(1.0+haf);
 end
 
 %***********************************************************************
 %     Geometry specification (main grid)
 %***********************************************************************
 
-%     Initialize entire main grid to free space
+%     Initialize entire main grid
 
-caex(1:ie,1:jb)=ca(1);     
-cbex(1:ie,1:jb)=cb(1);
-
-caey(1:ib,1:je)=ca(1);
-cbey(1:ib,1:je)=cb(1);
-
-dahz(1:ie,1:je)=da(1);
-dbhz(1:ie,1:je)=db(1);
+%caex(1:xdim,1:ydim)=ca(1);     
+%cbex(1:xdim,1:ydim)=cb(1);
+%
+%caey(1:xdim+1,1:ydim)=ca(1);
+%cbey(1:xdim+1,1:ydim)=cb(1);
+%
+%dahz(1:xdim,1:ydim)=da(1);
+%dbhz(1:xdim,1:ydim)=db(1);
 
 %     Add metal cylinder
 
 diam=20;          % diameter of cylinder: 6 cm
 rad=diam/2.0;     % radius of cylinder: 3 cm
-icenter=4*ie/5;   % i-coordinate of cylinder's center
-jcenter=je/2;     % j-coordinate of cylinder's center
+icenter=xdim/2;   % i-coordinate of cylinder's center
+jcenter=ydim/2;     % j-coordinate of cylinder's center
 
-for i=1:ie
-for j=1:je
+for i=1:xdim
+for j=1:ydim
   dist2=(i+0.5-icenter)^2 + (j-jcenter)^2;
   if dist2 <= rad^2 
-     caex(i,j)=ca(2);
-     cbex(i,j)=cb(2);
+     sigmax(i,j)=ca(2);
+     sigmax(i,j)=cb(2);
   end
   dist2=(i-icenter)^2 + (j+0.5-jcenter)^2;
   if dist2 <= rad^2 
-     caey(i,j)=ca(2);
-     cbey(i,j)=cb(2);
+     sigmay(i,j)=ca(2);
+     sigmay(i,j)=cb(2);
   end
 end
 end
-
 
 %Perfectly matched layer boundary design
 %Reference:-http://dougneubauer.com/wp-content/uploads/wdata/yee2dpml1/yee2d_c.txt
@@ -219,6 +219,7 @@ sine=0;
 % The user can give a frequency of his choice for sinusoidal (if sine=1 above) waves in Hz 
 frequency=1.5e+13;
 impulse=0;
+wave=1;
 %Choose any one as 1 and rest as 0. Default (when all are 0): Unit time step
 
 %Multiplication factor matrices for H matrix update to avoid being calculated many times 
@@ -298,6 +299,19 @@ for n=1:1:time_tot
                 Ezx(xsource,ysource)=0;
                 Ezy(xsource,ysource)=0;
             end
+        end
+        
+        if wave==1
+          rtau=160.0e-12;
+          tau=rtau/deltat;
+          delay=3*tau;
+          amp = 0.5;                  %amplitude of the wave excitation
+          freq=5.0e+9;                %center frequency of source excitation
+          lambda=cc/freq;             %center wavelength of source excitation
+          omega=2.0*pi*freq;
+          
+          Ezx(xsource,ysource) = amp*sin(omega*(n-delay)*dt)*exp(-((n-delay)^2/tau^2)); 
+          Ezy(xsource,ysource) = amp*sin(omega*(n-delay)*dt)*exp(-((n-delay)^2/tau^2)); 
         end
     else
         %if impulse
