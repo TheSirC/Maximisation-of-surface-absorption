@@ -96,9 +96,10 @@ S=1/(2^0.5);
 epsilon0=(1/(36*pi))*1e-9;
 mu0=4*pi*1e-7;
 c=3e+8;
+h=6.626070e-34;
 eta=sqrt(mu0/epsilon0);
 
-% Spatial grid step length (spatial grid step= 1 micron and can be changed)
+% Spatial grid step length (spatial grid step = 1 micron and can be changed)
 delta=1e-6;
 % Temporal grid step obtained using Courant condition
 deltat=S*delta/c;
@@ -142,43 +143,61 @@ for i=1:media
   db(i)=deltat/mu0/mur(i)/delta/(1.0+haf);
 end
 
+
 %***********************************************************************
-%     Geometry specification (main grid)
+%     Geometry specification (object)
 %***********************************************************************
 
-%     Initialize entire main grid
+% Flag to choose geometry of the object;
+object=0;
 
-%caex(1:xdim,1:ydim)=ca(1);     
-%cbex(1:xdim,1:ydim)=cb(1);
-%
-%caey(1:xdim+1,1:ydim)=ca(1);
-%cbey(1:xdim+1,1:ydim)=cb(1);
-%
-%dahz(1:xdim,1:ydim)=da(1);
-%dbhz(1:xdim,1:ydim)=db(1);
+if object==0
+    %%  Metal cylinder
+    
+    diam=20;          % diameter of cylinder
+    rad=diam/2.0;     % radius of cylinder
+    icenter=xdim/2;   % i-coordinate of cylinder's center
+    jcenter=ydim/2;     % j-coordinate of cylinder's center
+    
+    for i=1:xdim
+        for j=1:ydim
+            dist2=(i+0.5-icenter)^2 + (j-jcenter)^2;
+            if dist2 <= rad^2
+                sigmax(i,j)=ca(media);
+                sigmax(i,j)=cb(media);
+            end
+            dist2=(i-icenter)^2 + (j+0.5-jcenter)^2;
+            if dist2 <= rad^2
+                sigmay(i,j)=ca(media);
+                sigmay(i,j)=cb(media);
+            end
+        end
+    end
+    
+elseif object==1
+    
+    %%  Metal grating
+    
+    dima=6;
+    dimb=6;
+    ypos=2*ydim/3;
+    pos=0;
+    for i=1:1:xdim
+        pos=pos+delta*i;
+        if pos < dima*delta
+            sigmax(i,floor(ypos):end)=sig(media);
+            sigmay(i,floor(ypos):end)=sig(media);
+        elseif pos >= 2*dima*delta
+            pos=0;
+            continue;
+        else
+            sigmax(i,floor(ypos+dimb*delta):end)=sig(media);
+            sigmay(i,floor(ypos+dimb*delta):end)=sig(media);
+        end
+    end
+end %End of object choosing
 
-%     Add metal cylinder
-
-diam=20;          % diameter of cylinder: 6 cm
-rad=diam/2.0;     % radius of cylinder: 3 cm
-icenter=xdim/2;   % i-coordinate of cylinder's center
-jcenter=ydim/2;     % j-coordinate of cylinder's center
-
-for i=1:xdim
-for j=1:ydim
-  dist2=(i+0.5-icenter)^2 + (j-jcenter)^2;
-  if dist2 <= rad^2 
-     sigmax(i,j)=ca(2);
-     sigmax(i,j)=cb(2);
-  end
-  dist2=(i-icenter)^2 + (j+0.5-jcenter)^2;
-  if dist2 <= rad^2 
-     sigmay(i,j)=ca(2);
-     sigmay(i,j)=cb(2);
-  end
-end
-end
-
+imagesc(sigmax);
 %Perfectly matched layer boundary design
 %Reference:-http://dougneubauer.com/wp-content/uploads/wdata/yee2dpml1/yee2d_c.txt
 %(An adaptation of 2-D FDTD TE code of Dr. Susan Hagness)
@@ -215,11 +234,11 @@ sigma_stary=(sigmay.*mu)./epsilon;
 
 %Choice of nature of source
 gaussian=0;
-sine=0;
+sine=1;
 % The user can give a frequency of his choice for sinusoidal (if sine=1 above) waves in Hz 
 frequency=1.5e+13;
 impulse=0;
-wave=1;
+wave=0;
 %Choose any one as 1 and rest as 0. Default (when all are 0): Unit time step
 
 %Multiplication factor matrices for H matrix update to avoid being calculated many times 
@@ -300,18 +319,17 @@ for n=1:1:time_tot
                 Ezy(xsource,ysource)=0;
             end
         end
-        
+        %if pulse
         if wave==1
           rtau=160.0e-12;
           tau=rtau/deltat;
           delay=3*tau;
-          amp = 0.5;                  %amplitude of the wave excitation
-          freq=5.0e+9;                %center frequency of source excitation
-          lambda=cc/freq;             %center wavelength of source excitation
-          omega=2.0*pi*freq;
+          amp = 0.5;               %amplitude of the wave excitation
+          lambda=h*c/frequency;    %center wavelength of source excitation
+          omega=2.0*pi*frequency;
           
-          Ezx(xsource,ysource) = amp*sin(omega*(n-delay)*dt)*exp(-((n-delay)^2/tau^2)); 
-          Ezy(xsource,ysource) = amp*sin(omega*(n-delay)*dt)*exp(-((n-delay)^2/tau^2)); 
+          Ezx(xsource,ysource) = amp*sin(omega*(n-delay)*deltat)*exp(-((n-delay)^2/tau^2)); 
+          Ezy(xsource,ysource) = amp*sin(omega*(n-delay)*deltat)*exp(-((n-delay)^2/tau^2)); 
         end
     else
         %if impulse
@@ -327,10 +345,8 @@ for n=1:1:time_tot
     xlabel('x (in um)','FontSize',20);
     ylabel('y (in um)','FontSize',20);
     set(gca,'FontSize',20);
-    %getframe;
-    hold on
+    getframe;
 end
-hold off
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % END OF PROGRAM
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
