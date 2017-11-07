@@ -78,15 +78,15 @@ clear all; close all;
 clc;
 
 % Grid Dimension in x (xdim) and y (ydim) directions
-xdim=200;
-ydim=200;
+xdim=300;
+ydim=300;
 
 %Total no of time steps
-time_tot=350;
+time_tot=1000;
 
 %Position of the source (center of the domain)
-xsource=25;
-ysource=100;
+xsource=floor(xdim/8);
+ysource=ydim/2;
 
 %Courant stability factor
 S=1/(2^0.5);
@@ -110,6 +110,7 @@ Ezx=zeros(xdim,ydim);
 Ezy=zeros(xdim,ydim);
 Hy=zeros(xdim,ydim);
 Hx=zeros(xdim,ydim);
+Ej=zeros(xdim,ydim);
 
 % Initialization of permittivity and permeability matrices
 epsilon=epsilon0*ones(xdim,ydim);
@@ -119,29 +120,20 @@ mu=mu0*ones(xdim,ydim);
 sigmax=zeros(xdim,ydim);
 sigmay=zeros(xdim,ydim);
 
+% Initialization of the colormap
+LB=flipud(lbmap(256,'RedBlue'));
+
 %***********************************************************************
 %     Material parameters
 %***********************************************************************
 
 media=2;
 
-eps=[1.0 1.0];
-sig=[0.0 1.0e+7];
+n=3;
+eps=[1.0 (c/n)^2];
+sig=[0.0 5.0e+5];
 mur=[1.0 1.0];
 sim=[0.0 0.0];
-
-%***********************************************************************
-%     Updating coefficients
-%***********************************************************************
-
-for i=1:media
-  eaf  =deltat*sig(i)/(2.0*epsilon0*eps(i));
-  ca(i)=(1.0-eaf)/(1.0+eaf);
-  cb(i)=deltat/epsilon0/eps(i)/delta/(1.0+eaf);
-  haf  =deltat*sim(i)/(2.0*mu0*mur(i));
-  da(i)=(1.0-haf)/(1.0+haf);
-  db(i)=deltat/mu0/mur(i)/delta/(1.0+haf);
-end
 
 
 %***********************************************************************
@@ -149,55 +141,61 @@ end
 %***********************************************************************
 
 % Flag to choose geometry of the object;
-object=0;
+object=1;
 
 if object==0
-    %%  Metal cylinder
-    
-    diam=20;          % diameter of cylinder
+    %  Metal cylinder
+    diam=50;          % diameter of cylinder
     rad=diam/2.0;     % radius of cylinder
-    icenter=xdim/2;   % i-coordinate of cylinder's center
-    jcenter=ydim/2;     % j-coordinate of cylinder's center
+    icenter=2*xdim/3;   % i-coordinate of cylinder's center
+    jcenter=2*ydim/3;     % j-coordinate of cylinder's center
     
     for i=1:xdim
         for j=1:ydim
             dist2=(i+0.5-icenter)^2 + (j-jcenter)^2;
             if dist2 <= rad^2
-                sigmax(i,j)=ca(media);
-                sigmax(i,j)=cb(media);
+                sigmax(i,j)=sig(media);
+                sigmay(i,j)=sig(media);
+                epsilon(i,j)=eps(media);
             end
             dist2=(i-icenter)^2 + (j+0.5-jcenter)^2;
             if dist2 <= rad^2
-                sigmay(i,j)=ca(media);
-                sigmay(i,j)=cb(media);
+                sigmax(i,j)=sig(media);
+                sigmay(i,j)=sig(media);
+                epsilon(i,j)=eps(media);
             end
         end
     end
     
 elseif object==1
-    
-    %%  Metal grating
-    
+    %  Metal grating
     dima=6;
-    dimb=6;
+    dimb=12;
     ypos=2*ydim/3;
     pos=0;
     for i=1:1:xdim
-        pos=pos+delta*i;
-        if pos < dima*delta
+        pos=pos+1;
+        if pos < dima
             sigmax(i,floor(ypos):end)=sig(media);
             sigmay(i,floor(ypos):end)=sig(media);
-        elseif pos >= 2*dima*delta
+            epsilon(i,floor(ypos):end)=eps(media);
+        elseif pos >= 2*dima
             pos=0;
-            continue;
-        else
-            sigmax(i,floor(ypos+dimb*delta):end)=sig(media);
-            sigmay(i,floor(ypos+dimb*delta):end)=sig(media);
+            sigmax(i,floor(ypos):end)=sig(media);
+            sigmay(i,floor(ypos):end)=sig(media);
+            epsilon(i,floor(ypos):end)=eps(media);
+        elseif pos >= dima
+            sigmax(i,floor(ypos+dimb):end)=sig(media);
+            sigmay(i,floor(ypos+dimb):end)=sig(media);
+            epsilon(i,floor(ypos+dimb):end)=eps(media);
         end
     end
-end %End of object choosing
+    sigmax = sigmax';
+    sigmay = sigmay';
+    epsilon = epsilon';
+end % End of object choosing
 
-imagesc(sigmax);
+
 %Perfectly matched layer boundary design
 %Reference:-http://dougneubauer.com/wp-content/uploads/wdata/yee2dpml1/yee2d_c.txt
 %(An adaptation of 2-D FDTD TE code of Dr. Susan Hagness)
@@ -236,7 +234,7 @@ sigma_stary=(sigmay.*mu)./epsilon;
 gaussian=0;
 sine=1;
 % The user can give a frequency of his choice for sinusoidal (if sine=1 above) waves in Hz 
-frequency=1.5e+13;
+frequency=3.75e+14;
 impulse=0;
 wave=0;
 %Choose any one as 1 and rest as 0. Default (when all are 0): Unit time step
@@ -324,7 +322,7 @@ for n=1:1:time_tot
           rtau=160.0e-12;
           tau=rtau/deltat;
           delay=3*tau;
-          amp = 0.5;               %amplitude of the wave excitation
+          amp = 2;               %amplitude of the wave excitation
           lambda=h*c/frequency;    %center wavelength of source excitation
           omega=2.0*pi*frequency;
           
@@ -338,9 +336,15 @@ for n=1:1:time_tot
     end
     
     Ez=Ezx+Ezy;
-    
+    Ej=Ej + 0.5*(sigma_starx + sigma_stary).*Ez.^2 * deltat;
+    title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
+    xlabel('x (in um)','FontSize',20);
+    ylabel('y (in um)','FontSize',20);
+    set(gca,'FontSize',20);
     %Movie type colour scaled image plot of Ez
-    imagesc(delta*1e+6*(1:1:xdim),(delta*1e+6*(1:1:ydim))',Ez',[-1,1]);colorbar;
+%     subplot(1,2,1); imagesc(delta*1e+6*(1:1:xdim),(delta*1e+6*(1:1:ydim))',Ez',[-1,1]); colormap(LB);
+%     subplot(1,2,2); 
+    imagesc(delta*1e+6*(1:1:xdim),(delta*1e+6*(1:1:ydim))',Ej'); colormap(LB);
     title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
     xlabel('x (in um)','FontSize',20);
     ylabel('y (in um)','FontSize',20);
