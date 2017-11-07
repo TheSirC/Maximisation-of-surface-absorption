@@ -127,6 +127,8 @@ LB=flipud(lbmap(256,'RedBlue'));
 %     Material parameters
 %***********************************************************************
 
+% 1 - Air
+% 2 - Tungsten
 media=2;
 
 n=3;
@@ -232,11 +234,11 @@ sigma_stary=(sigmay.*mu)./epsilon;
 
 %Choice of nature of source
 gaussian=0;
-sine=1;
+sine=0;
 % The user can give a frequency of his choice for sinusoidal (if sine=1 above) waves in Hz 
 frequency=3.75e+14;
 impulse=0;
-wave=0;
+wave=1;
 %Choose any one as 1 and rest as 0. Default (when all are 0): Unit time step
 
 %Multiplication factor matrices for H matrix update to avoid being calculated many times 
@@ -319,15 +321,17 @@ for n=1:1:time_tot
         end
         %if pulse
         if wave==1
-          rtau=160.0e-12;
-          tau=rtau/deltat;
+          tstart=1;
+          tau=10e-15;
           delay=3*tau;
-          amp = 2;               %amplitude of the wave excitation
-          lambda=h*c/frequency;    %center wavelength of source excitation
-          omega=2.0*pi*frequency;
-          
-          Ezx(xsource,ysource) = amp*sin(omega*(n-delay)*deltat)*exp(-((n-delay)^2/tau^2)); 
-          Ezy(xsource,ysource) = amp*sin(omega*(n-delay)*deltat)*exp(-((n-delay)^2/tau^2)); 
+          amp = 1e15;            % amplitude of the wave excitation
+          deltay=5e-6;
+          lambda=800e-9;         % center wavelength of source excitation  
+          omega=2.0*pi*c/lambda;
+          for iy=ysource-deltay/delta:1:ysource+deltay/delta
+              Ezx(xsource,iy) = Ezx(xsource,iy) + amp*sin(omega*(n-tstart)*deltat)*exp(-((n-tstart)^2/tau^2))*exp(-((iy-ysource)/(deltay))^2);
+              Ezy(xsource,iy) = Ezy(xsource,iy) + amp*sin(omega*(n-tstart)*deltat)*exp(-((n-tstart)^2/tau^2))*exp(-((iy-ysource)/(deltay))^2);
+          end
         end
     else
         %if impulse
@@ -336,15 +340,16 @@ for n=1:1:time_tot
     end
     
     Ez=Ezx+Ezy;
-    Ej=Ej + 0.5*(sigma_starx + sigma_stary).*Ez.^2 * deltat;
+    Ej=Ej + 0.5*(sigmax + sigmay).*Ez.^2 * deltat;
     title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
     xlabel('x (in um)','FontSize',20);
     ylabel('y (in um)','FontSize',20);
+    
     set(gca,'FontSize',20);
+    set(gcf,'units','normalized','outerposition',[0 0 1 1])% Pour mettre la figure en plein �cran
+    set(gcf,'doublebuffer','on'); % Pour des figures plus adoucies
     %Movie type colour scaled image plot of Ez
-%     subplot(1,2,1); imagesc(delta*1e+6*(1:1:xdim),(delta*1e+6*(1:1:ydim))',Ez',[-1,1]); colormap(LB);
-%     subplot(1,2,2); 
-    imagesc(delta*1e+6*(1:1:xdim),(delta*1e+6*(1:1:ydim))',Ej'); colormap(LB);
+    imagesc(Ej(bound_width+10:xdim-bound_width-10, bound_width+10:ydim-bound_width-10)'); colormap(LB);
     title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
     xlabel('x (in um)','FontSize',20);
     ylabel('y (in um)','FontSize',20);
