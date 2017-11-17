@@ -1,120 +1,361 @@
-%% Implementation of FDTD method
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Written for Course :- Computational Electromagnetics, Fall 2011
+%                       Department of Electrical Engineering
+%                       Indian Institute of Technology Madras
+%                       Chennai - 600036, India
+%
+% Authors            :- Sathya Swaroop Ganta, B.Tech., M.Tech. Electrical Engg.
+%                       Kayatri, M.S. Engineering Design
+%                       Pankaj, M.S. Electrical Engg.
+%                       Sumanthra Chaudhuri, M.S. Electrical Engg.
+%                       Projesh Basu, M.S. Electrical Engg.
+%                       Nikhil Kumar CS, M.S. Electrical Engg.
+%
+% Instructor :- Ananth Krishnan
+%               Assistant Professor
+%               Department of Electrical Engineering
+%               Indian Institute of Technology Madras
+%
+% Any correspondance regarding this program may be addressed to
+% Prof. Ananth Krishnan at 'computational.em.at.iit.madras@gmail.com'
+%
+% Copyright/Licensing :- For educational and research purposes only. No
+% part of this program may be used for any financial benefit of any kind
+% without the consent of the instructor of the course.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% "2D FDTD solution for Perfectly Matched Layer (PML) boundary condition"
+% 
+% Objective of the program is to solve for the Maxwell's equation for a TM 
+% wave containing the xy-plane polarized magnetic field having components Hy
+% and Hx and z-polarized electric field Ez. The fields are updated at every 
+% timestep, in a space, where all physical parameters of free space are not
+% normalized to 1 but are given real and known values. The update is done 
+% using standard update equations obtained from the difference form of Maxwell's 
+% curl equations with very low electric and magnetic conductivities of 4x10^(-4) 
+% units incorporated in them. The field points are defined in a grid described 
+% by Yee's algorithm. The H fields are defined at every half coordinate of 
+% spacesteps. More precisely, the Hx part is defined at every half y-coordinate 
+% and full x-coordinate and the Hy part is defined at every half x-coordinate 
+% and full y-coordinate and E fields i.e the Ez part is defined at every full 
+% x and full y-coordinate points.Also here, the space-step length is taken 
+% as 1 micron instead of 1 unit in unitless domain assumed in previous programs. 
+% Also, the time update is done using Leapfrog time-stepping. Here, H-fields
+% i.e. Hx and Hy are updated every half time-step and E fields i.e Ez are 
+% updated every full time-step. This is shown by two alternating matrix updates 
+% spanning only a part of spatial grid where the wave, starting from source, 
+% has reached at that particular time instant avoiding field updates at all 
+% points in the grid which is unnecessary at that time instant. These spatial 
+% updates are inside the main for-loop for time update, spanning the entire 
+% time grid. Also, here, the matrices used as multiplication factors for update 
+% equations are initialized before the loop starts to avoid repeated calculation 
+% of the same in every loop iteration, a minor attempt at optimization. The 
+% boundary condition here is Perfectly Matched Layer (PML) boundary condition 
+% where the fields near the boundary are attenuated over a predetermined length 
+% of boundary width before they reach the boudary to a zero value at the boundary 
+% using a polynomially increasing electrical conductivity value over the boundary 
+% width with maximum at the boundary and also chosing a magnetic conductivity
+% value at every point in the boundary width to avoid reflection at that 
+% point given in [1]. Also, here, Berenger's PML condition is used where in
+% the field Ez is split into two components Ezx and Ezy and the components
+% are attenuated using separate electric and magnetic conductivities in the
+% two directions (sigmax and sigma_starx in x direction and sigmay and sigma_stary
+% in the y direction).
+%
+% A source of electric field is defined at the center of the spatial domain, 
+% which is a hard source, in that it does not change its value due to 
+% interference from external fields i.e in other words, the source is a 
+% perfect electric conductor. The form of the source can be varied using 
+% the variables sine, gaussian and impulse. The source is available in four 
+% standard forms- Unit-time step, Impulse, Gausian and Sinusoidal forms. 
+% The color scaled plot of Ez field over the entire spatial domain is shown 
+% at every time step. The simulation can be ended by closing this plot window 
+% or by waiting till all the time step updates are completed.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-close all; clear all;
-%% Parameters of the propagation
+%Clearing variables in memory and Matlab command screen
+clear all; close all;
+clc;
 
-% Paramètres physiques
-d = 20e-6; % Dimension de propagation transversale
-L = 40e-6; % Dimension de propagation axiale
-l = 800e-9; % Longueur d'onde
-c = 3e8; % Vitesse de la lumière dans le vide
-eps0 = 8.854e-12; % Permittivité électrique du vide
-espR = 1; % Permittivité relative du milieu
-mu0 = 4*pi*10^(-7); % Perméabilité magnétique du vide
-muR = 1; % Perméabilité relative du milieu
-eta0 = sqrt(mu0/eps0); % Impédance du vide
-tau = 10e-15;
+% Grid Dimension in x (xdim) and y (ydim) directions
+xdim=300;
+ydim=300;
 
-% Paramètres numériques
-dx = l/20; % Dimension transversale unitaire de la grille
-dz = l/20; % Dimension axiale unitaire de la grille
-dt = dz/c; % Dimension temporelle de la simulation
-N = 201; % Résolution spatiale de la simulation
-Ni = 200; % Résolution temporelle de la simulation (Nombre d'images)
-x = linspace(0,L,N);
-z = linspace(0,L,N);
-t = 0:dt:Ni*dt;
+%Total no of time steps
+time_tot=1000;
 
-% Propriétés d'espace
-EpsR = ones(1,N); % Matrice de permittivité électrique
-MuR = ones(1,N); % Matrice de perméabilité magnétique
-sigma = zeros(1,N); % Conductivité
+%Position of the source (center of the domain)
+xsource=floor(xdim/8);
+ysource=ydim/2;
 
-% Profil pour les variables d'espaces
-profile = 5;
-for i=1:N
-    w1 = 0.5*1.e-6;
-    w2 = 1.5*1.e-6;
-    if (profile==1) %dielectric window
-        if (abs(z(i)-L/2)<0.5e-6) EpsR(i)=1; end
-    end
-    if (profile==2)%dielectric window with smooth transition
-        if (abs(z(i)-L/2)<1.5*1.e-6) EpsR(i)=1+3*(1+cos(pi*(abs(z(i)-L/2)-w1)/(w2-w1)))/2; end
-        if (abs(z(i)-L/2)<0.5*1.e-6) EpsR(i)=4; end
-    end
-    if (profile==3) %dielectric discontinuity
-        if (z(i)>L/2) EpsR(i) = 9; end
-    end
-    if (profile==4) %dielectric disontinuity with 1/4-wave matching layer
-        if (z(i)>(L/2-0.1443)) EpsR(i) = 3; end
-        if (z(i)>L/2) EpsR(i) = 9; end
-    end
-    if (profile==5) %conducting half space
-        if (z(i)>L/2) sigma(i) = 5e3; end
-    end
-    if (profile==6) %sinusoidal dielectric
-        EpsR(i) = 1+sin(2*pi*z(i)/L)^2;
-    end
-    if (profile==7) %sinusoidal dimagnetic
-        MuR(i) = 1+sin(2*pi*z(i)/L)^2;
+%Courant stability factor
+S=1/(2^0.5);
+
+% Parameters of free space (permittivity and permeability and speed of
+% light) are all not 1 and are given real values
+epsilon0=(1/(36*pi))*1e-9;
+mu0=4*pi*1e-7;
+c=3e+8;
+h=6.626070e-34;
+eta=sqrt(mu0/epsilon0);
+
+% Spatial grid step length (spatial grid step = 1 micron and can be changed)
+delta=1e-6;
+% Temporal grid step obtained using Courant condition
+deltat=S*delta/c;
+
+% Initialization of field matrices
+Ez=zeros(xdim,ydim);
+Ezx=zeros(xdim,ydim);
+Ezy=zeros(xdim,ydim);
+Hy=zeros(xdim,ydim);
+Hx=zeros(xdim,ydim);
+Ej=zeros(xdim,ydim);
+
+% Initialization of permittivity and permeability matrices
+epsilon=epsilon0*ones(xdim,ydim);
+mu=mu0*ones(xdim,ydim);
+
+% Initializing electric conductivity matrices in x and y directions
+sigmax=zeros(xdim,ydim);
+sigmay=zeros(xdim,ydim);
+
+% Initialization of the colormap
+LB=flipud(lbmap(256,'RedBlue'));
+
+%***********************************************************************
+%     Material parameters
+%***********************************************************************
+
+% 1 - Air
+% 2 - Tungsten
+media=2;
+
+n=3;
+eps=[1.0 (c/n)^2];
+sig=[0.0 5.0e+5];
+mur=[1.0 1.0];
+sim=[0.0 0.0];
+
+
+%***********************************************************************
+%     Geometry specification (object)
+%***********************************************************************
+
+% Flag to choose geometry of the object;
+object=1;
+
+if object==0
+    %  Metal cylinder
+    diam=50;          % diameter of cylinder
+    rad=diam/2.0;     % radius of cylinder
+    icenter=2*xdim/3;   % i-coordinate of cylinder's center
+    jcenter=2*ydim/3;     % j-coordinate of cylinder's center
+    
+    for i=1:xdim
+        for j=1:ydim
+            dist2=(i+0.5-icenter)^2 + (j-jcenter)^2;
+            if dist2 <= rad^2
+                sigmax(i,j)=sig(media);
+                sigmay(i,j)=sig(media);
+                epsilon(i,j)=eps(media);
+            end
+            dist2=(i-icenter)^2 + (j+0.5-jcenter)^2;
+            if dist2 <= rad^2
+                sigmax(i,j)=sig(media);
+                sigmay(i,j)=sig(media);
+                epsilon(i,j)=eps(media);
+            end
+        end
     end
     
-end
-eta = eta0.*sqrt(MuR./EpsR); % Impédance du milieu
-%% Field definition
-
-% Initialisation des champs
-E0 = 2; % Amplitude du champ (prise en compte des solutions de Maxwell : une rétrograde, une prograde)
-E = zeros(size(x,2),size(z,2),size(t,2));
-H = zeros(size(x,2),size(z,2),size(t,2));
-
-% Terme de source
-Es = @(ti,t0) E0*exp(-((ti-t0)/(tau)).^2).*sin(2*pi.*ti*c/l);
-
-for ti = 2:numel(t)-1
-    H(1, :, :) = H(2, :, :); % Conditions aux limites (Absorption sur les bords à gauche)
-    for zi = 2:numel(z)-1
-        for xi = 2:numel(x)-1
-            % Mise à jour des paramètres d'espace
-            ae = (dt)/((dz*eps0*EpsR(zi))*(1+dt*sigma(zi)/(2*eps0*EpsR(zi))));
-            af = (dt)/((dx*eps0*EpsR(zi))*(1+dt*sigma(zi)/(2*eps0*EpsR(zi))));
-            am = (dt)/(dz*mu0*muR);
-            an = (dt)/(dx*mu0*muR);
-            as = (1 - dt*sigma(zi)/(2*eps0*EpsR(zi)))/(1 + dt*sigma(zi)/(2*eps0*EpsR(zi)));
-
-            % Mise à jour des champs
-            if zi == 2 && xi == (numel(x)-1)/2
-                H(xi,zi,ti) = H(xi,zi,ti-1)...
-                                            - am*(E(xi,zi+1,ti-1) - E(xi,zi,ti-1))...
-                                            + an*(E(xi+1,zi,ti-1) - E(xi,zi,ti-1));
-                E(xi,zi,ti) = as*E(xi,zi,ti-1)...
-                                            - ae*(H(xi,zi,ti) - H(xi,zi-1,ti))...
-                                            + Es(t(ti),3*tau); % Terme de source
-            else
-                H(xi,zi,ti) = H(xi,zi,ti-1)...
-                                            - am*(E(xi,zi+1,ti-1) - E(xi,zi,ti-1))...
-                                            + an*(E(xi+1,zi,ti-1) - E(xi,zi,ti-1));
-                E(xi,zi,ti) = as*E(xi,zi,ti-1)...
-                                            - ae*(H(xi,zi,ti) - H(xi,zi-1,ti));
-            end
-            
-        end       
-            E(xi,zi,ti) = as*E(xi,zi,ti-1)...
-                                            - af*(H(xi,zi,ti) - H(xi-1,zi,ti));
-        
+elseif object==1
+    %  Metal grating
+    dima=12;
+    dimb=6;
+    ypos=2*ydim/3;
+    pos=0;
+    for i=1:1:xdim
+        pos=pos+1;
+        if pos < dima
+            sigmax(i,floor(ypos):end)=sig(media);
+            sigmay(i,floor(ypos):end)=sig(media);
+            epsilon(i,floor(ypos):end)=eps(media);
+        elseif pos >= 2*dima
+            pos=0;
+            sigmax(i,floor(ypos):end)=sig(media);
+            sigmay(i,floor(ypos):end)=sig(media);
+            epsilon(i,floor(ypos):end)=eps(media);
+        elseif pos >= dima
+            sigmax(i,floor(ypos+dimb):end)=sig(media);
+            sigmay(i,floor(ypos+dimb):end)=sig(media);
+            epsilon(i,floor(ypos+dimb):end)=eps(media);
+        end
     end
-    E(:, numel(z), :) = E(:, numel(z)-1, :); % Conditions aux limites (Absorption sur les bords à droite)
+    sigmax = sigmax';
+    sigmay = sigmay';
+    epsilon = epsilon';
+end % End of object choosing
+
+
+%Perfectly matched layer boundary design
+%Reference:-http://dougneubauer.com/wp-content/uploads/wdata/yee2dpml1/yee2d_c.txt
+%(An adaptation of 2-D FDTD TE code of Dr. Susan Hagness)
+
+%Boundary width of PML in all directions
+bound_width=25;
+
+%Order of polynomial on which sigma is modeled
+gradingorder=6;
+
+%Required reflection co-efficient
+refl_coeff=1e-6;
+
+%Polynomial model for sigma
+sigmamax=(-log10(refl_coeff)*(gradingorder+1)*epsilon0*c)/(2*bound_width*delta);
+boundfact1=((epsilon(xdim/2,bound_width)/epsilon0)*sigmamax)/((bound_width^gradingorder)*(gradingorder+1));
+boundfact2=((epsilon(xdim/2,ydim-bound_width)/epsilon0)*sigmamax)/((bound_width^gradingorder)*(gradingorder+1));
+boundfact3=((epsilon(bound_width,ydim/2)/epsilon0)*sigmamax)/((bound_width^gradingorder)*(gradingorder+1));
+boundfact4=((epsilon(xdim-bound_width,ydim/2)/epsilon0)*sigmamax)/((bound_width^gradingorder)*(gradingorder+1));
+x=0:1:bound_width;
+for i=1:1:xdim
+    sigmax(i,bound_width+1:-1:1)=boundfact1*((x+0.5*ones(1,bound_width+1)).^(gradingorder+1)-(x-0.5*[0 ones(1,bound_width)]).^(gradingorder+1));
+    sigmax(i,ydim-bound_width:1:ydim)=boundfact2*((x+0.5*ones(1,bound_width+1)).^(gradingorder+1)-(x-0.5*[0 ones(1,bound_width)]).^(gradingorder+1));
 end
-%% Plotting of the fields
-% i = 1;
-figure;
-set(gcf,'units','normalized','outerposition',[0 0 1 1])% Pour mettre la figure en plein écran
-set(gcf,'doublebuffer','on'); % Pour des figures plus adoucies
-for ti = 1:numel(t)
-    colormap hot;
-    imagesc(E(:, :, ti));
-    axis off
-    pause(0.1)
-    % i = i + 1;
+for i=1:1:ydim
+    sigmay(bound_width+1:-1:1,i)=boundfact3*((x+0.5*ones(1,bound_width+1)).^(gradingorder+1)-(x-0.5*[0 ones(1,bound_width)]).^(gradingorder+1))';
+    sigmay(xdim-bound_width:1:xdim,i)=boundfact4*((x+0.5*ones(1,bound_width+1)).^(gradingorder+1)-(x-0.5*[0 ones(1,bound_width)]).^(gradingorder+1))';
 end
-close all;
+
+%Magnetic conductivity matrix obtained by Perfectly Matched Layer condition
+%This is also split into x and y directions in Berenger's model
+sigma_starx=(sigmax.*mu)./epsilon;
+sigma_stary=(sigmay.*mu)./epsilon;
+
+%Choice of nature of source
+gaussian=0;
+sine=0;
+% The user can give a frequency of his choice for sinusoidal (if sine=1 above) waves in Hz 
+frequency=3.75e+14;
+impulse=0;
+wave=1;
+%Choose any one as 1 and rest as 0. Default (when all are 0): Unit time step
+
+%Multiplication factor matrices for H matrix update to avoid being calculated many times 
+%in the time update loop so as to increase computation speed
+G=((mu-0.5*deltat*sigma_starx)./(mu+0.5*deltat*sigma_starx)); 
+H=(deltat/delta)./(mu+0.5*deltat*sigma_starx);
+A=((mu-0.5*deltat*sigma_stary)./(mu+0.5*deltat*sigma_stary)); 
+B=(deltat/delta)./(mu+0.5*deltat*sigma_stary);
+                          
+%Multiplication factor matrices for E matrix update to avoid being calculated many times 
+%in the time update loop so as to increase computation speed                          
+C=((epsilon-0.5*deltat*sigmax)./(epsilon+0.5*deltat*sigmax)); 
+D=(deltat/delta)./(epsilon+0.5*deltat*sigmax);   
+E=((epsilon-0.5*deltat*sigmay)./(epsilon+0.5*deltat*sigmay)); 
+F=(deltat/delta)./(epsilon+0.5*deltat*sigmay);
+
+% Update loop begins
+for n=1:1:time_tot
+    
+    %if source is impulse or unit-time step 
+    if gaussian==0 && sine==0 && n==1
+        Ezx(xsource,ysource)=0.5;
+        Ezy(xsource,ysource)=0.5;
+    end
+    
+    % Setting time dependent boundaries to update only relevant parts of the 
+    % matrix where the wave has reached to avoid unnecessary updates.
+    if n<xsource-2
+        n1=xsource-n-1;
+    else
+        n1=1;
+    end
+    if n<xdim-1-xsource
+        n2=xsource+n;
+    else
+        n2=xdim-1;
+    end
+    if n<ysource-2
+        n11=ysource-n-1;
+    else
+        n11=1;
+    end
+    if n<ydim-1-ysource
+        n21=ysource+n;
+    else
+        n21=ydim-1;
+    end
+    
+    %matrix update instead of for-loop for Hy and Hx fields
+    Hy(n1:n2,n11:n21)=A(n1:n2,n11:n21).*Hy(n1:n2,n11:n21)+B(n1:n2,n11:n21).*(Ezx(n1+1:n2+1,n11:n21)-Ezx(n1:n2,n11:n21)+Ezy(n1+1:n2+1,n11:n21)-Ezy(n1:n2,n11:n21));
+    Hx(n1:n2,n11:n21)=G(n1:n2,n11:n21).*Hx(n1:n2,n11:n21)-H(n1:n2,n11:n21).*(Ezx(n1:n2,n11+1:n21+1)-Ezx(n1:n2,n11:n21)+Ezy(n1:n2,n11+1:n21+1)-Ezy(n1:n2,n11:n21));
+    
+    %matrix update instead of for-loop for Ez field
+    Ezx(n1+1:n2+1,n11+1:n21+1)=C(n1+1:n2+1,n11+1:n21+1).*Ezx(n1+1:n2+1,n11+1:n21+1)+D(n1+1:n2+1,n11+1:n21+1).*(-Hx(n1+1:n2+1,n11+1:n21+1)+Hx(n1+1:n2+1,n11:n21));
+    Ezy(n1+1:n2+1,n11+1:n21+1)=E(n1+1:n2+1,n11+1:n21+1).*Ezy(n1+1:n2+1,n11+1:n21+1)+F(n1+1:n2+1,n11+1:n21+1).*(Hy(n1+1:n2+1,n11+1:n21+1)-Hy(n1:n2,n11+1:n21+1));
+    
+    % Source conditions
+    if impulse==0
+        % If unit-time step
+        if gaussian==0 && sine==0
+            Ezx(xsource,ysource)=0.5;
+            Ezy(xsource,ysource)=0.5;
+        end
+        %if sine
+        if sine==1
+            tstart=1;
+            N_lambda=c/(frequency*delta);
+            Ezx(xsource,ysource)=0.5*sin(((2*pi*(c/(delta*N_lambda))*(n-tstart)*deltat)));
+            Ezy(xsource,ysource)=0.5*sin(((2*pi*(c/(delta*N_lambda))*(n-tstart)*deltat)));
+        end
+        %if gaussian
+        if gaussian==1
+            if n<=42
+                Ezx(xsource,ysource)=(10-15*cos(n*pi/20)+6*cos(2*n*pi/20)-cos(3*n*pi/20))/64;
+                Ezy(xsource,ysource)=(10-15*cos(n*pi/20)+6*cos(2*n*pi/20)-cos(3*n*pi/20))/64;
+            else
+                Ezx(xsource,ysource)=0;
+                Ezy(xsource,ysource)=0;
+            end
+        end
+        %if pulse
+        if wave==1
+          tstart=1;
+          tau=10e-15;
+          delay=3*tau;
+          amp = 1e15;            % amplitude of the wave excitation
+          deltay=5e-6;
+          lambda=800e-9;         % center wavelength of source excitation  
+          omega=2.0*pi*c/lambda;
+          for iy=ysource-deltay/delta:1:ysource+deltay/delta
+              Ezx(xsource,iy) = Ezx(xsource,iy) + amp*sin(omega*(n-tstart)*deltat)*exp(-((n-tstart)^2/tau^2))*exp(-((iy-ysource)/(deltay))^2);
+              Ezy(xsource,iy) = Ezy(xsource,iy) + amp*sin(omega*(n-tstart)*deltat)*exp(-((n-tstart)^2/tau^2))*exp(-((iy-ysource)/(deltay))^2);
+          end
+        end
+    else
+        %if impulse
+        Ezx(xsource,ysource)=0;
+        Ezy(xsource,ysource)=0;
+    end
+    
+    Ez=Ezx+Ezy;
+    Ej=Ej + 0.5*(sigmax + sigmay).*Ez.^2 * deltat;
+    title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
+    xlabel('x (in um)','FontSize',20);
+    ylabel('y (in um)','FontSize',20);
+    
+    set(gca,'FontSize',20);
+    set(gcf,'units','normalized','outerposition',[0 0 1 1])% Pour mettre la figure en plein écran
+    set(gcf,'doublebuffer','on'); % Pour des figures plus adoucies
+    %Movie type colour scaled image plot of Ez
+    imagesc(Ej(bound_width+10:xdim-bound_width-10, bound_width+10:ydim-bound_width-10)'); colormap(LB);
+    title(['\fontsize{20}Colour-scaled image plot of Ez in a spatial domain with PML boundary and at time = ',num2str(round(n*deltat*1e+15)),' fs']); 
+    xlabel('x (in um)','FontSize',20);
+    ylabel('y (in um)','FontSize',20);
+    set(gca,'FontSize',20);
+    getframe;
+end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% END OF PROGRAM
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
